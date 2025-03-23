@@ -21,7 +21,6 @@ VALID_ERAS = [
     "modern"
 ]
 
-
 GUTENBERG_ERAS_PREAMBLE_PROMPT = (
     "A passage is fed to a language-analysis assistant. "
     "You, the assistant, first thinks about the nature of the text in the mind, then responds. "
