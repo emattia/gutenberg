@@ -72,7 +72,8 @@ def training_environment(func):
                 "wandb": "0.19.5",
                 "kagglehub": "0.3.6",  # needed by torchtune.
                 "datasets": "3.2.0",
-                "vllm": "0.7.2"
+                "vllm": "0.7.2",
+                "transformers": "4.48.3"
             },
         ),
         environment(

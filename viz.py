@@ -1,4 +1,7 @@
 import re
+import torch
+from typing import Optional, List, Dict, Any
+from torchtune.modules.tokenizers import ModelTokenizer
 
 def display_prompt(
     prompt, 
@@ -52,271 +55,424 @@ def display_prompt(
 
     return html_output
 
-def display_responses(responses, tokenizer, grpo_size, advantages=None, rewards=None, successes=None, component_details=None, show_n:int=None):
+def display_responses(
+    responses: torch.Tensor,
+    tokenizer: ModelTokenizer,
+    grpo_size: int,
+    advantages: Optional[torch.Tensor] = None,
+    rewards: Optional[torch.Tensor] = None,
+    successes: Optional[torch.Tensor] = None,
+    details: Optional[List[List[Dict[str, Any]]]] = None,
+    show_n: Optional[int] = None
+) -> str:
     """
-    Display responses for all batches in HTML container.
-    """
-    import re
+    Display responses with rewards, advantages, and detailed diagnostics in a visually appealing format.
     
-    # Get batch size
+    Args:
+        responses: Tensor of token IDs
+        tokenizer: Tokenizer for decoding responses
+        grpo_size: Size of the policy optimization group
+        advantages: Optional tensor of advantages
+        rewards: Optional tensor of rewards
+        successes: Optional tensor of successes
+        details: Optional list of reward calculation details
+        show_n: Optional maximum number of responses to display
+        
+    Returns:
+        HTML string for displaying the responses
+    """
     batch_size = responses.shape[0]
     
-    # Function to extract scalar value from tensor
-    def get_item_value(tensor, batch_idx, item_idx):
-        """Extract scalar value from tensor accounting for different dimensions."""
+    # Helper function to safely get values from tensors with different shapes
+    def get_item_value(tensor, batch_idx, group_idx):
         if tensor is None:
             return None
         
         if tensor.dim() == 1:
             # Handle 1D tensor [grpo_size]
-            return tensor[item_idx].item() if item_idx < tensor.shape[0] else None
-        elif tensor.dim() == 2:
+            return tensor[group_idx].item()
+        else:
             # Handle 2D tensor [batch_size, grpo_size]
-            if batch_idx < tensor.shape[0] and item_idx < tensor.shape[1]:
-                return tensor[batch_idx][item_idx].item()
-        return None
+            return tensor[batch_idx][group_idx].item()
     
-    # Generate HTML styles (CSS is unchanged from your original function)
     html_output = """
-        <style>
-            .response-container {
-                margin: 20px 0;
-                border: 1px solid #C4C7AC;
-                border-radius: 8px;
-                overflow: hidden;
-                box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-                font-family: 'Courier New', monospace;
-                max-width: 100%;
-            }
-            .response-header {
-                background-color: #F0EBE5;
-                padding: 10px 15px;
-                font-size: 16px;
-                font-weight: bold;
-                border-bottom: 1px solid #C4C7AC;
-                color: #4A4A67;
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-            }
-            .batch-header {
-                background-color: #E0E0E0;
-                padding: 12px 15px;
-                font-size: 18px;
-                font-weight: bold;
-                border-bottom: 1px solid #C4C7AC;
-                color: #3A3A57;
-                margin-top: 30px;
-                border-radius: 8px 8px 0 0;
-            }
-            .response-body {
-                background-color: #ffffff;
-                color: #4A4A67;
-                padding: 15px;
-                white-space: pre-wrap;
-                word-wrap: break-word;
-                line-height: 1.6;
-                font-size: 14px;
-            }
-            /* Rest of your CSS unchanged */
-            .think-tag {
-                color: #BE6A1A;
-                font-weight: bold;
-            }
-            .answer-tag {
-                color: #2C6846;
-                font-weight: bold;
-            }
-            .answer-era-tag {
-                color: #2C6846;
-                font-weight: bold;
-            }
-            .answer-date-tag {
-                color: #2C6846;
-                font-weight: bold;
-            }
-            .calculation {
-                color: #2E5CA7;
-                background-color: #E9F0FA;
-                padding: 2px 4px;
-                border-radius: 2px;
-            }
-            .math {
-                font-family: 'Courier New', monospace;
-                background-color: #F0EBE5;
-                padding: 0 3px;
-                border-radius: 3px;
-            }
-            .metric-label {
-                color: #4A4A67;
-            }
-            .metrics-container {
-                background-color: #F0EBE5;
-                border-top: 1px solid #C4C7AC;
-                padding: 10px 15px;
-            }
-            .metric-score {
-                font-family: monospace;
-                font-weight: bold;
-                padding: 2px 8px;
-                border-radius: 4px;
-                display: inline-block;
-                margin-right: 8px;
-            }
-            .score-high {
-                background-color: #D3EFE0;
-                color: #177350;
-            }
-            .score-medium {
-                background-color: #FCF1D6;
-                color: #BE6A1A;
-            }
-            .score-low {
-                background-color: #FAD9D8;
-                color: #C5393A;
-            }
-            .success-badge {
-                background-color: #177350;
-                color: white;
-                padding: 3px 8px;
-                border-radius: 4px;
-                font-size: 12px;
-                font-weight: bold;
-            }
-            .failure-badge {
-                background-color: #4A4A67;
-                color: white;
-                padding: 3px 8px;
-                border-radius: 4px;
-                font-size: 12px;
-                font-weight: bold;
-            }
-        </style>
-        <script>
-        function toggleDetails(id) {
-            var details = document.getElementById('details-' + id);
+    <style>
+        .response-container {
+            margin: 20px 0;
+            border: 1px solid #C4C7AC;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            font-family: 'Courier New', monospace;
+            max-width: 100%;
+        }
+        .response-header {
+            background-color: #F0EBE5;
+            padding: 10px 15px;
+            font-size: 16px;
+            font-weight: bold;
+            border-bottom: 1px solid #C4C7AC;
+            color: #4A4A67;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .response-body {
+            background-color: #ffffff;
+            color: #4A4A67;
+            padding: 15px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            line-height: 1.6;
+            font-size: 14px;
+        }
+        .think-tag {
+            color: #BE6A1A;
+            font-weight: bold;
+        }
+        .answer-tag {
+            color: #2C6846;
+            font-weight: bold;
+        }
+        .answer-era-tag {
+            color: #2C6846;
+            font-weight: bold;
+        }
+        .answer-date-tag {
+            color: #2C6846;
+            font-weight: bold;
+        }
+        .metrics-container {
+            background-color: #F0EBE5;
+            border-top: 1px solid #C4C7AC;
+            padding: 10px 15px;
+        }
+        .metric-label {
+            color: #4A4A67;
+        }
+        .metric-score {
+            font-family: monospace;
+            font-weight: bold;
+            padding: 2px 8px;
+            border-radius: 4px;
+            display: inline-block;
+            margin-right: 8px;
+        }
+        .score-high {
+            background-color: #D3EFE0;
+            color: #177350;
+        }
+        .score-medium {
+            background-color: #FCF1D6;
+            color: #BE6A1A;
+        }
+        .score-low {
+            background-color: #FAD9D8;
+            color: #C5393A;
+        }
+        .success-badge {
+            background-color: #177350;
+            color: white;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .failure-badge {
+            background-color: #C5393A;
+            color: white;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .metrics-toggle {
+            cursor: pointer;
+            color: #3F7DC9;
+            text-decoration: underline;
+            font-size: 12px;
+            margin-top: 5px;
+            display: inline-block;
+            font-weight: bold;
+        }
+        .details-container {
+            display: none;
+            margin-top: 10px;
+            border-top: 1px solid #C4C7AC;
+            padding-top: 10px;
+        }
+        
+        /* Reward details styling */
+        .reward-component {
+            margin-bottom: 10px;
+            padding: 8px;
+            border-radius: 4px;
+            background-color: #f8f9fa;
+        }
+        .component-name {
+            font-weight: bold;
+            color: #4A4A67;
+        }
+        .component-value {
+            font-family: monospace;
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+        .component-value-positive {
+            background-color: #D3EFE0;
+            color: #177350;
+        }
+        .component-value-negative {
+            background-color: #FAD9D8;
+            color: #C5393A;
+        }
+        .component-reason {
+            font-size: 0.9em;
+            color: #555;
+            margin-top: 4px;
+        }
+        .check-success {
+            color: #177350;
+            font-weight: bold;
+        }
+        .check-fail {
+            color: #C5393A;
+            font-weight: bold;
+        }
+        .batch-header {
+            margin: 30px 0 10px 0;
+            padding: 5px 10px;
+            background-color: #E5E7D9;
+            border-left: 4px solid #4A4A67;
+            color: #4A4A67;
+            font-size: 18px;
+            font-weight: bold;
+        }
+    </style>
+    
+    <script>
+    function toggleDetails(batchIdx, groupIdx) {
+        var detailsId = 'details-' + batchIdx + '-' + groupIdx;
+        var details = document.getElementById(detailsId);
+        var buttonId = 'toggle-' + batchIdx + '-' + groupIdx;
+        var toggleBtn = document.getElementById(buttonId);
+        
+        if (details) {
             if (details.style.display === 'none' || details.style.display === '') {
                 details.style.display = 'block';
+                if (toggleBtn) toggleBtn.innerText = 'Hide Details';
             } else {
                 details.style.display = 'none';
+                if (toggleBtn) toggleBtn.innerText = 'Show Details';
             }
         }
-        </script>
+    }
+    </script>
     """
     
-    has_rewards = rewards is not None and successes is not None
-    has_details = component_details is not None
+    if show_n is not None:
+        grpo_size = min(grpo_size, show_n)
     
-    # Loop through all batches
-    for batch_idx in range(batch_size):
-        # Add batch header
-        html_output += f'<div class="batch-header">Batch #{batch_idx + 1}</div>'
+    for b in range(batch_size):
+        html_output += f'<div class="batch-header">Batch #{b+1}</div>'
         
-        # Process responses for this batch
-        responses_decoded = []
-        for i in range(grpo_size):
-            try:
-                decoded = tokenizer.decode(responses[batch_idx, i, :].tolist())
-                responses_decoded.append(decoded)
-            except:
-                responses_decoded.append("Sample response")
-        
-        if show_n:
-            responses_decoded = responses_decoded[:show_n]
-
-        # Loop through each response in the batch
-        for i, response in enumerate(responses_decoded):
+        for g in range(grpo_size):
+            # Decode the response
+            response_text = tokenizer.decode(responses[b, g].tolist())
+            
+            # Determine if this response succeeded
+            success_value = get_item_value(successes, b, g) if successes is not None else None
+            is_successful = success_value == 1.0 if success_value is not None else None
+            
+            # Get reward and advantage if available
+            reward_value = get_item_value(rewards, b, g) if rewards is not None else None
+            advantage_value = get_item_value(advantages, b, g) if advantages is not None else None
+            
+            # Start response container
             html_output += f'<div class="response-container">'
-            ### START HEADER ###
+            
+            # Response header
             html_output += f'<div class="response-header">'
-            html_output += f'<div>Response #{i+1}</div>'
-            if has_rewards:
-                reward = get_item_value(rewards, batch_idx, i)
-                success = get_item_value(successes, batch_idx, i)
-                if success and success > 0.5:
+            html_output += f'<div>Response #{g+1}</div>'
+            
+            # Add success/fail badge if available
+            if is_successful is not None:
+                if is_successful:
                     html_output += f'<div class="success-badge">SUCCESS</div>'
                 else:
                     html_output += f'<div class="failure-badge">FAIL</div>'
-            html_output += '</div>'
             
-            ### START RESPONSE BODY ### 
+            html_output += '</div>'  # End response header
+            
+            # Response body with tag highlighting
             html_output += f'<div class="response-body">'
-            response = response.replace("\n", "<br>")
-            # Escape HTML tags but keep <br> tags.
-            response = response.replace("<", "&lt;").replace(">", "&gt;")
-            response = response.replace("&lt;br&gt;", "<br>")
             
-            ### HIGHLIGHT TAGS ###
-            # Think tags
-            response = re.sub(
-                r'&lt;/think&gt;', 
-                '<span class="think-tag">&lt;/think&gt;</span>', 
-                response
-            )
-            response = re.sub(
-                r'&lt;think&gt;', 
-                '<span class="think-tag">&lt;think&gt;</span>', 
-                response
+            # Escape HTML but preserve line breaks
+            escaped_text = html.escape(response_text).replace('\n', '<br>')
+            
+            # Highlight tags
+            escaped_text = re.sub(
+                r'&lt;think&gt;(.+?)&lt;/think&gt;',
+                r'<span class="think-tag">&lt;think&gt;</span>\1<span class="think-tag">&lt;/think&gt;</span>',
+                escaped_text,
+                flags=re.DOTALL
             )
             
-            # Standard answer tags
-            response = re.sub(
-                r'&lt;/answer&gt;', 
-                '<span class="answer-tag">&lt;/answer&gt;</span>', 
-                response
-            )
-            response = re.sub(
-                r'&lt;answer&gt;', 
-                '<span class="answer-tag">&lt;answer&gt;</span>', 
-                response
+            escaped_text = re.sub(
+                r'&lt;answer_era&gt;(.+?)&lt;/answer_era&gt;',
+                r'<span class="answer-era-tag">&lt;answer_era&gt;</span>\1<span class="answer-era-tag">&lt;/answer_era&gt;</span>',
+                escaped_text
             )
             
-            # Era answer tags
-            response = re.sub(
-                r'&lt;/answer_era&gt;', 
-                '<span class="answer-era-tag">&lt;/answer_era&gt;</span>', 
-                response
-            )
-            response = re.sub(
-                r'&lt;answer_era&gt;', 
-                '<span class="answer-era-tag">&lt;answer_era&gt;</span>', 
-                response
+            escaped_text = re.sub(
+                r'&lt;answer_date&gt;(.+?)&lt;/answer_date&gt;',
+                r'<span class="answer-date-tag">&lt;answer_date&gt;</span>\1<span class="answer-date-tag">&lt;/answer_date&gt;</span>',
+                escaped_text
             )
             
-            # Date answer tags
-            response = re.sub(
-                r'&lt;/answer_date&gt;', 
-                '<span class="answer-date-tag">&lt;/answer_date&gt;</span>', 
-                response
-            )
-            response = re.sub(
-                r'&lt;answer_date&gt;', 
-                '<span class="answer-date-tag">&lt;answer_date&gt;</span>', 
-                response
-            )
+            html_output += escaped_text
+            html_output += '</div>'  # End response body
             
-            html_output += response
-            html_output += '</div>' 
-            
-            ### START METRICS ###
-            if has_rewards:
+            # Metrics container
+            if reward_value is not None or advantage_value is not None:
                 html_output += f'<div class="metrics-container">'
-                reward = get_item_value(rewards, batch_idx, i)
-                advantage = get_item_value(advantages, batch_idx, i) if advantages is not None else None
                 
-                if reward is not None:
-                    score_class = "score-high" if reward >= 80 else "score-medium" if reward >= 30 else "score-low"
-                    html_output += f'<div><strong class="metric-label">Reward:</strong> <span class="metric-score {score_class}">{reward:.1f}</span></div>'
+                # Determine score class based on reward value
+                score_class = "score-high" if reward_value and reward_value >= 80 else \
+                              "score-medium" if reward_value and reward_value >= 30 else \
+                              "score-low"
                 
-                if advantage is not None:
-                    adv_class = "score-high" if advantage >= 5 else "score-medium" if advantage >= 0 else "score-low"
-                    html_output += f'<div><strong class="metric-label">Advantage:</strong> <span class="metric-score {adv_class}">{advantage:.1f}</span></div>'
+                # Display reward
+                if reward_value is not None:
+                    html_output += f'<div><strong class="metric-label">Reward:</strong> <span class="metric-score {score_class}">{reward_value:.1f}</span></div>'
                 
-                # Component details code removed for brevity (copy from original)
-                html_output += '</div>'  # Close metrics container
-            html_output += '</div>'  # Close response container
+                # Display advantage
+                if advantage_value is not None:
+                    adv_class = "score-high" if advantage_value > 0 else "score-low"
+                    html_output += f'<div><strong class="metric-label">Advantage:</strong> <span class="metric-score {adv_class}">{advantage_value:.1f}</span></div>'
+                
+                # Add details toggle if available
+                if details is not None and b < len(details) and g < len(details[b]):
+                    html_output += f'<a id="toggle-{b}-{g}" class="metrics-toggle" onclick="toggleDetails({b}, {g})">Show Details</a>'
+                    html_output += f'<div id="details-{b}-{g}" class="details-container">'
+                    
+                    # Format reward details
+                    detail_data = details[b][g]
+                    
+                    # Ground truth
+                    html_output += f'<div style="margin-bottom: 15px;">'
+                    html_output += f'<div><strong>Ground Truth:</strong> Era=\'{detail_data["ground_truth"]["era"]}\', Date=\'{detail_data["ground_truth"]["date"]}\'</div>'
+                    html_output += f'</div>'
+                    
+                    # Extracted tags
+                    html_output += f'<div style="margin-bottom: 15px;">'
+                    html_output += f'<div><strong>Extracted Tags:</strong></div>'
+                    html_output += f'<ul style="margin-top: 5px; padding-left: 20px;">'
+                    html_output += f'<li>Think: {len(detail_data["extracted_tags"]["think"])} tag(s)</li>'
+                    html_output += f'<li>Era: {len(detail_data["extracted_tags"]["answer_era"])} tag(s)</li>'
+                    html_output += f'<li>Date: {len(detail_data["extracted_tags"]["answer_date"])} tag(s)</li>'
+                    html_output += f'</ul>'
+                    html_output += f'</div>'
+                    
+                    # Format analysis
+                    html_output += f'<div style="margin-bottom: 15px;">'
+                    html_output += f'<div><strong>Format Analysis:</strong></div>'
+                    
+                    if detail_data['format_analysis'].get('has_outside_text', False):
+                        outside_text = html.escape(detail_data['format_analysis']['outside_text'])
+                        html_output += f'<div class="check-fail">❌ Text outside tags: "{outside_text}"</div>'
+                    else:
+                        html_output += f'<div class="check-success">✓ No text outside tags</div>'
+                    
+                    html_output += f'</div>'
+                    
+                    # Content analysis
+                    if 'content_analysis' in detail_data:
+                        html_output += f'<div style="margin-bottom: 15px;">'
+                        html_output += f'<div><strong>Content Analysis:</strong></div>'
+                        
+                        # Era analysis
+                        if 'era' in detail_data['content_analysis']:
+                            provided_eras = ', '.join([f"'{era}'" for era in detail_data['content_analysis']['era']['provided']])
+                            html_output += f'<div style="margin-top: 5px;"><strong>Era provided:</strong> {provided_eras}</div>'
+                            
+                            match_status = ""
+                            if detail_data['content_analysis'].get('era_match', {}).get('exact_match', False):
+                                match_status = f'<span class="check-success">✓ Exact match</span>'
+                            elif detail_data['content_analysis'].get('era_match', {}).get('partial_match', False):
+                                match_status = f'<span style="color: #BE6A1A; font-weight: bold;">~ Partial match</span>'
+                            else:
+                                match_status = f'<span class="check-fail">❌ No match</span>'
+                            
+                            html_output += f'<div><strong>Era match:</strong> {match_status}</div>'
+                        
+                        # Date analysis
+                        if 'date' in detail_data['content_analysis']:
+                            provided_dates = ', '.join([f"'{date}'" for date in detail_data['content_analysis']['date']['provided']])
+                            html_output += f'<div style="margin-top: 5px;"><strong>Date provided:</strong> {provided_dates}</div>'
+                            
+                            if 'best_match' in detail_data['content_analysis']['date']:
+                                best = detail_data['content_analysis']['date']['best_match']
+                                diff_class = "check-success" if best['difference'] <= 20 else \
+                                             ("color: #BE6A1A; font-weight: bold;" if best['difference'] <= 50 else "check-fail")
+                                
+                                html_output += f'<div><strong>Best date:</strong> {best["value"]} <span style="{diff_class}">(diff: {best["difference"]} years)</span></div>'
+                        
+                        html_output += f'</div>'
+                    
+                    # Reward components table
+                    html_output += f'<div style="margin-bottom: 15px;">'
+                    html_output += f'<div><strong>Reward Components:</strong></div>'
+                    html_output += f'<div style="margin-top: 10px;">'
+                    
+                    for component in detail_data['reward_components']:
+                        component_name = component['component']
+                        value = component['value']
+                        reason = component['reason']
+                        
+                        # Determine CSS class based on value
+                        try:
+                            value_float = float(str(value).replace("(overwrites previous)", ""))
+                            value_class = "component-value-positive" if value_float > 0 else "component-value-negative"
+                        except:
+                            value_class = ""
+                        
+                        html_output += f'<div class="reward-component">'
+                        html_output += f'<div><span class="component-name">{component_name}:</span> <span class="component-value {value_class}">{value}</span></div>'
+                        html_output += f'<div class="component-reason">{reason}</div>'
+                        html_output += f'</div>'
+                    
+                    html_output += f'</div>'
+                    html_output += f'</div>'
+                    
+                    # Success criteria
+                    if 'success_criteria' in detail_data:
+                        criteria = detail_data['success_criteria']
+                        html_output += f'<div style="margin-bottom: 15px;">'
+                        html_output += f'<div><strong>Success Criteria:</strong></div>'
+                        html_output += f'<ul style="margin-top: 5px; padding-left: 20px;">'
+                        
+                        html_output += f'<li><span class="{"check-success" if criteria["perfect_format"] else "check-fail"}">{("✓" if criteria["perfect_format"] else "❌")} Format perfect</span></li>'
+                        html_output += f'<li><span class="{"check-success" if criteria["correct_era"] else "check-fail"}">{("✓" if criteria["correct_era"] else "❌")} Era correct</span></li>'
+                        html_output += f'<li><span class="{"check-success" if criteria["correct_date"] else "check-fail"}">{("✓" if criteria["correct_date"] else "❌")} Date correct</span></li>'
+                        
+                        html_output += f'</ul>'
+                        html_output += f'</div>'
+                    
+                    # Total reward summary
+                    html_output += f'<div style="margin-top: 15px; padding-top: 10px; border-top: 1px solid #C4C7AC;">'
+                    html_output += f'<div><strong>Total Reward:</strong> <span class="{"score-high" if detail_data["total_reward"] > 0 else "score-low"}">{detail_data["total_reward"]}</span></div>'
+                    html_output += f'<div><strong>Success:</strong> <span class="{"score-high" if detail_data["success"] > 0 else "score-low"}">{detail_data["success"]}</span></div>'
+                    html_output += f'</div>'
+                    
+                    html_output += f'</div>'  # End details container
+                
+                html_output += f'</div>'  # End metrics container
+            
+            html_output += f'</div>'  # End response container
     
     return html_output
+
 
 def display_responses_old(responses, tokenizer, grpo_size, advantages=None, rewards=None, successes=None, component_details=None, show_n:int=None):
 
