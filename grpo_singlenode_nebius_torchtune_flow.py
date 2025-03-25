@@ -120,14 +120,13 @@ def inference_environment(func):
 
 
 @nebius
-class TorchtuneGRPOSingleNode(FlowSpec):
+class GutenbergErasGRPOPostTrain(FlowSpec):
 
     training_config = IncludeFile(
         "config",
         default="3B_full_grpo_llama_32.yaml",
         is_text=True,
     )
-    dry_run = Parameter("dry-run", default=False, type=bool)
     prev_model_key = Parameter(
         "pre-model-key", 
                             #    default='mf.models/models/artifacts/TorchTuneFlow_train_9b7c8cc5a31d41e79f63723d6dbcdec1', 
@@ -139,16 +138,17 @@ class TorchtuneGRPOSingleNode(FlowSpec):
         default="grpo_full_finetune_distributed.py",
         help="The name of the recipe or .py file that defines the recipe. Metaflow will automatically package .py files in the flow directory."
     )
-    max_train_samples = Parameter(
-        "train-samples",
-        default=1000,
-        type=int
-    )
-    max_valid_samples = Parameter(
-        "valid-samples",
-        default=200,
-        type=int
-    )
+    # dry_run = Parameter("dry-run", default=False, type=bool)
+    # max_train_samples = Parameter(
+    #     "train-samples",
+    #     default=1000,
+    #     type=int
+    # )
+    # max_valid_samples = Parameter(
+    #     "valid-samples",
+    #     default=200,
+    #     type=int
+    # )
 
     @step
     def start(self):
@@ -159,14 +159,14 @@ class TorchtuneGRPOSingleNode(FlowSpec):
             self.train_data = json.load(f)
         with open('gutenberg_dataset/validation/passages.json', 'r') as f:
             self.valid_data = json.load(f)
-        if self.dry_run:
-            print('[@step start] Dry run')
-            self.train_data = self.train_data[:5]
-            self.valid_data = self.valid_data[:3]
-        if self.max_train_samples:
-            self.train_data = self.train_data[:self.max_train_samples]
-        if self.max_valid_samples:
-            self.valid_data = self.valid_data[:self.max_valid_samples]
+        # if self.dry_run:
+        #     print('[@step start] Dry run')
+        #     self.train_data = self.train_data[:5]
+        #     self.valid_data = self.valid_data[:3]
+        # if self.max_train_samples:
+        #     self.train_data = self.train_data[:self.max_train_samples]
+        # if self.max_valid_samples:
+        #     self.valid_data = self.valid_data[:self.max_valid_samples]
         self.next(self.pull_model)
 
     @huggingface
@@ -254,10 +254,7 @@ class TorchtuneGRPOSingleNode(FlowSpec):
         self.next(self.eval)
 
     @card(type='html')
-    @model(
-        load=[("model_ref", "/metaflow_temp/model")], 
-        temp_dir_root="/metaflow_temp/loaded_models"
-    )
+    @model(load="model_ref")
     @inference_environment
     @nebius_k8s(**nebius_k8s_config)
     @step
@@ -274,12 +271,12 @@ class TorchtuneGRPOSingleNode(FlowSpec):
             checkpoint_path="/metaflow_temp/model",
             data_path='gutenberg_dataset/validation',
             output_dir='results',
-            max_batches=10,
+            # max_batches=10,
             seed=42
         )
         self.html = f"""
             <html><body>
-            {''.join(self.results['html_viz'])}
+            {''.join(self.results['html_viz'][:20])}
             </body></html>
         """
 
@@ -293,4 +290,4 @@ class TorchtuneGRPOSingleNode(FlowSpec):
 
 
 if __name__ == "__main__":
-    TorchtuneGRPOSingleNode()
+    GutenbergErasGRPOPostTrain()

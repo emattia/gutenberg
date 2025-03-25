@@ -12,10 +12,11 @@ from torchtune.datasets import SFTDataset
 from torchtune.modules.tokenizers import ModelTokenizer
 from torchtune.dev.grpo.data import RLDataset, padded_collate_rl
 
-# Configurable prompt templates
+# TODO: load these from download_src_data? common config?
 VALID_ERAS = [
     "renaissance",
     "enlightenment",
+    "romatnic",
     "victorian",
     "edwardian",
     "modern"
