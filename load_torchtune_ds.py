@@ -23,10 +23,10 @@ VALID_ERAS = [
 
 GUTENBERG_ERAS_PREAMBLE_PROMPT = (
     "A passage is fed to a language-analysis assistant. "
-    "You, the assistant, first thinks about the nature of the text in the mind, then responds. "
+    "You, the assistant, first think about the nature of the text in the mind, then respond. "
     "The thinking should entail logic that supports the answers you respond with. "
     "Structure the contents of the thinking tag in clear statements and logical connectors between them. "
-    "You, the assistant, must respond in EXACTLY this XML format:\n"
+    "Responses should be EXACTLY in this XML format:\n"
     "<think>Your detailed reasoning process here...</think> "
     "<answer_date>YEAR</answer_date> "
     "<answer_era>ERA</answer_era>\n\n"

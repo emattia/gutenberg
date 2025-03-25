@@ -17,7 +17,6 @@ from torchtune.dev.grpo.data import padded_collate_rl
 from vllm import LLM, SamplingParams
 from load_torchtune_ds import load_gutenberg_dataset
 
-# Set up logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -25,16 +24,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def load_reward_function(reward_fn_config: Union[str, Dict]) -> callable:
-    """
-    Load a reward function based on configuration.
-    
-    Args:
-        reward_fn_config: Either a string with the reward function name or a dict with module path
-        
-    Returns:
-        The reward function
-    """
+def load_reward_server(reward_fn_config):
+    """Load a reward function based on configuration."""
     if isinstance(reward_fn_config, str):
         module_path = f"rewards_{reward_fn_config}"
     else:
@@ -43,12 +34,9 @@ def load_reward_function(reward_fn_config: Union[str, Dict]) -> callable:
     try:
         from importlib import import_module
         module = import_module(module_path)
-        return getattr(module, "batch_shaped_correctness_reward")
+        return getattr(module, "RewardServer")
     except (ImportError, AttributeError) as e:
-        logger.error(f"Failed to load reward function: {str(e)}")
-        logger.info("Falling back to default reward function")
-        from rewards_v0 import batch_shaped_correctness_reward
-        return batch_shaped_correctness_reward
+        raise ValueError(f"Failed to load reward function: {str(e)}")
 
 def get_tokenizer_path(checkpoint_path: str, custom_tokenizer_path: Optional[str] = None) -> str:
     """
@@ -68,7 +56,7 @@ def get_tokenizer_path(checkpoint_path: str, custom_tokenizer_path: Optional[str
         return custom_tokenizer_path
     
     # Standard TorchTune structure: /path/to/model/original/tokenizer.model
-    # We return the directory containing the tokenizer
+    # Return the directory containing the tokenizer
     return os.path.join(checkpoint_path, "original")
 
 def run_eval(
@@ -145,8 +133,10 @@ def run_eval(
     })
     
     ### Load reward function
-    reward_function = load_reward_function(reward_fn)
-    logger.info(f"Using reward function: {reward_function.__module__}.{reward_function.__name__}")
+    # reward_function = load_reward_function(reward_fn)
+    RewardServer = load_reward_server(reward_fn)
+    reward_server = RewardServer() 
+    logger.info(f"Using reward function: {reward_fn}")
     
     ### Load assets
     logger.info("Loading tokenizer for dataset processing...")
@@ -235,7 +225,8 @@ def run_eval(
             "successes": [],
             "reward_components": defaultdict(list),
             "advantages": []
-        }
+        },
+        "html_viz": []
     }
     
     # Process batches
@@ -296,11 +287,16 @@ def run_eval(
                 response_tokens.append(out_tokens)
                 response_texts.append(generated_text)
             
+            ### TODO REMOVE
+            print('[DEBUG eval - outputs shape]', len(outputs))
+            before = torch.tensor(response_tokens, dtype=torch.long)
+            print('[DEBUG eval before]', before.shape)
+
             # Convert to tensor for reward calculation
             responses_tensor = torch.tensor(response_tokens, dtype=torch.long).reshape(batch_size, grpo_size, max_tokens)
             
             # Calculate rewards and successes
-            rewards, successes, details = reward_function(
+            rewards, successes, details = reward_server.batch_shaped_correctness_reward(
                 tokenizer=tokenizer,
                 completions=responses_tensor,
                 answers=batch_answers,
@@ -357,6 +353,16 @@ def run_eval(
                 all_results["aggregated"]["successes"].extend(successes[i].tolist())
                 all_results["aggregated"]["advantages"].extend(advantages[i].tolist())
             
+            all_results['html_viz'].append(reward_server.display_responses(
+                responses_tensor,
+                tokenizer,
+                grpo_size,
+                advantages=advantages,
+                rewards=rewards,
+                successes=successes,
+                details=details
+            ))
+
         except Exception as e:
             logger.error(f"Error processing batch {batch_idx}: {str(e)}")
             if verbose:
@@ -416,7 +422,7 @@ def run_eval(
             
         logger.info(f"Saved results to {output_dir}")
         logger.info(f"Summary: {json.dumps(all_results['summary'], indent=2)}")
-    
+
     return all_results
 
 

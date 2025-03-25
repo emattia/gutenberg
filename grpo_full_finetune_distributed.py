@@ -21,7 +21,7 @@ from torchtune import config, generation, modules, rlhf, training, utils
 from torchtune.config._utils import _get_component_from_path
 from torchtune.datasets import ConcatDataset
 # from torchtune.dev.grpo.generation import generate
-from grpo_generation_tqdmless import generate
+from recipe_utils.grpo_generation_tqdmless import generate
 # from torchtune.dev.grpo.rewards import batch_shaped_correctness_reward
 # from grpo_rewards_aaa import batch_shaped_correctness_reward
 from torchtune.dev.grpo.types import GRPOStats, GRPOTrajectory
@@ -33,12 +33,12 @@ from tqdm import tqdm
 
 log = utils.get_logger("DEBUG")
 
-def load_reward_server(reward_fn_config):
+def load_reward_server(reward_fn):
     """Load a reward function based on configuration."""
-    if isinstance(reward_fn_config, str):
-        module_path = f"rewards_{reward_fn_config}"
+    if isinstance(reward_fn, str):
+        module_path = f"rewards_{reward_fn}"
     else:
-        module_path = reward_fn_config.get("module", "rewards_v0")
+        module_path = reward_fn.get("module", "rewards_v0")
         
     try:
         from importlib import import_module
@@ -153,20 +153,10 @@ class FullGRPOFinetuneRecipeDistributed(FTRecipeInterface):
         self._rng = torch.Generator(self._device).manual_seed(self.seed)
         self._use_pbar = cfg.get("pbar")
 
-        # reward_fn = cfg.get('reward_fn', 'v0')
-        # TODO: Replace this disgusting hack for proper way to modularize reward fn.
-        # if reward_fn == 'default':
-        #     from rewards_v0 import batch_shaped_correctness_reward
-        # # elif reward_fn == 'aaa_v0':
-        # #     from grpo_rewards_aaa_v0 import batch_shaped_correctness_reward
-        # # elif reward_fn == 'aaa_v1':
-        # #     from grpo_rewards_aaa_v1 import batch_shaped_correctness_reward
-        # else:
-        #     raise ValueError(f'Pluggable reward_fn named {reward_fn} not implemented.')
-            
+        # Configure dataset
+        self._data_path = cfg.data_path
         RewardServer = load_reward_server(cfg.get('reward_fn', 'v0'))
-        self.reward_server = RewardServer()
-        # self.batch_shaped_correctness_reward = batch_shaped_correctness_reward
+        self.reward_server = RewardServer() 
 
     def load_checkpoint(self, cfg_checkpointer: DictConfig) -> Dict[str, Any]:
         """
@@ -592,17 +582,8 @@ class FullGRPOFinetuneRecipeDistributed(FTRecipeInterface):
         import os
         from load_torchtune_ds import load_gutenberg_dataset
         ### TODO: remove hardcoded paths / use torchtune configs properly
-        self._data_path = os.path.join(os.getcwd(), "gutenberg_dataset")
+        # self._data_path = os.path.join(os.getcwd(), "gutenberg_dataset")
         ds = load_gutenberg_dataset(self._tokenizer, data_path=self._data_path)
-
-        # if isinstance(cfg_dataset, ListConfig):
-        #     datasets = [
-        #         config.instantiate(single_cfg_dataset, self._tokenizer)
-        #         for single_cfg_dataset in cfg_dataset
-        #     ]
-        #     ds = ConcatDataset(datasets=datasets)
-        # else:
-        #     ds = config.instantiate(cfg_dataset, self._tokenizer)
 
         # Instantiate collate_fn
         collate_fn = _get_component_from_path(collate_fn)
