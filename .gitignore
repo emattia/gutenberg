@@ -3,3 +3,4 @@ gutenberg_dataset
 test-results
 eval_results
 __pycache__
+log.txt

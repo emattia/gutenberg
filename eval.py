@@ -50,7 +50,6 @@ def get_tokenizer_path(checkpoint_path: str, custom_tokenizer_path: Optional[str
         Path to the tokenizer directory
     """
     if custom_tokenizer_path:
-        # Use custom path if provided
         if os.path.isfile(custom_tokenizer_path):
             return os.path.dirname(custom_tokenizer_path)
         return custom_tokenizer_path
@@ -63,7 +62,7 @@ def run_eval(
     checkpoint_path: str,
     data_path: str,
     reward_fn: Union[str, Dict] = "v0",
-    tokenizer_path: Optional[str] = None,  # Now optional
+    tokenizer_path: Optional[str] = None,
     output_dir: Optional[str] = None,
     world_size: int = 1,
     rank: int = 0,
@@ -279,42 +278,30 @@ def run_eval(
             for o in outputs:
                 generated_text = o.outputs[0].text
                 out_tokens = list(o.outputs[0].token_ids)
-                
-                # Pad if necessary
+
                 if len(out_tokens) < max_tokens:
                     out_tokens += [pad_id] * (max_tokens - len(out_tokens))
                 
                 response_tokens.append(out_tokens)
                 response_texts.append(generated_text)
-            
-            ### TODO REMOVE
-            print('[DEBUG eval - outputs shape]', len(outputs))
-            before = torch.tensor(response_tokens, dtype=torch.long)
-            print('[DEBUG eval before]', before.shape)
 
-            # Convert to tensor for reward calculation
             responses_tensor = torch.tensor(response_tokens, dtype=torch.long).reshape(batch_size, grpo_size, max_tokens)
-            
-            # Calculate rewards and successes
             rewards, successes, details = reward_server.batch_shaped_correctness_reward(
                 tokenizer=tokenizer,
                 completions=responses_tensor,
                 answers=batch_answers,
                 details_report=True
             )
-            
-            # Calculate advantages
             advantages = (rewards - rewards.mean(1, keepdim=True)) / (
                 rewards.std(1, keepdim=True) + 1e-4
             )
             
-            # Store batch results
+            # Store results
             for i in range(batch_size):
                 for j in range(grpo_size):
                     sample_idx = i * grpo_size + j
                     sample_detail = details[i][j] if details else None
-                    
-                    # Store sample-level information
+
                     sample_data = {
                         "batch_idx": batch_idx,
                         "sample_idx": sample_idx,
@@ -369,21 +356,16 @@ def run_eval(
                 import traceback
                 logger.error(traceback.format_exc())
     
-    # Calculate final statistics
     logger.info("Calculating final statistics...")
-    
-    # Compute aggregate metrics
     aggregated = all_results["aggregated"]
-    
-    # Basic statistics for main metrics
+
     for metric in ["rewards", "successes", "advantages"]:
         values = torch.tensor(aggregated[metric])
         aggregated[f"{metric}_mean"] = float(values.mean())
         aggregated[f"{metric}_std"] = float(values.std())
         aggregated[f"{metric}_min"] = float(values.min())
         aggregated[f"{metric}_max"] = float(values.max())
-        
-    # Component-level statistics
+ 
     for component, values in aggregated["reward_components"].items():
         values_tensor = torch.tensor(values)
         aggregated["reward_components_stats"] = aggregated.get("reward_components_stats", {})
@@ -394,7 +376,6 @@ def run_eval(
             "max": float(values_tensor.max()),
         }
     
-    # Create summary for easy reporting
     all_results["summary"] = {
         "num_samples": len(all_results["samples"]),
         "mean_reward": aggregated["rewards_mean"],
@@ -403,17 +384,14 @@ def run_eval(
         "elapsed_time": time.time() - start_time
     }
     
-    # Save results if output directory is provided
     if output_dir and is_main_process:
-        # Save full results as JSON
         results_path = os.path.join(output_dir, "eval_results.json")
         with open(results_path, "w") as f:
             json.dump(all_results, f, indent=2)
         
-        # Save samples as CSV for easier analysis
-        samples_df = pd.DataFrame(all_results["samples"])
-        samples_path = os.path.join(output_dir, "eval_samples.csv")
-        samples_df.to_csv(samples_path, index=False)
+        # samples_df = pd.DataFrame(all_results["samples"])
+        # samples_path = os.path.join(output_dir, "eval_samples.csv")
+        # samples_df.to_csv(samples_path, index=False)
         
         # Save summary as separate file
         summary_path = os.path.join(output_dir, "eval_summary.json")
@@ -457,7 +435,7 @@ if __name__ == "__main__":
     results = run_eval(
         checkpoint_path=args.checkpoint_path,
         data_path=args.data_path,
-        tokenizer_path=args.tokenizer_path,  # Now optional
+        tokenizer_path=args.tokenizer_path,
         reward_fn=args.reward_fn,
         output_dir=args.output_dir,
         world_size=args.world_size,
@@ -473,6 +451,5 @@ if __name__ == "__main__":
         verbose=args.verbose
     )
     
-    # Print summary if not already printed
     if args.rank == 0 and args.output_dir is None:
         logger.info(f"Evaluation summary: {json.dumps(results['summary'], indent=2)}")

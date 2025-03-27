@@ -138,6 +138,10 @@ class GutenbergErasGRPOPostTrain(FlowSpec):
         default="grpo_full_finetune_distributed.py",
         help="The name of the recipe or .py file that defines the recipe. Metaflow will automatically package .py files in the flow directory."
     )
+    reward_fn = Parameter(
+        "reward_fn",
+        default="v1"
+    )
     # dry_run = Parameter("dry-run", default=False, type=bool)
     # max_train_samples = Parameter(
     #     "train-samples",
@@ -150,6 +154,7 @@ class GutenbergErasGRPOPostTrain(FlowSpec):
     #     type=int
     # )
 
+    @training_environment
     @step
     def start(self):
         # NOTE: This will not work with Argo yet. 
@@ -167,6 +172,18 @@ class GutenbergErasGRPOPostTrain(FlowSpec):
         #     self.train_data = self.train_data[:self.max_train_samples]
         # if self.max_valid_samples:
         #     self.valid_data = self.valid_data[:self.max_valid_samples]
+        if not self.reward_fn:
+            raise ValueError('reward_fn parameter must be specified.')
+        # validate reward_fn exists
+        try:
+            module_path = f"rewards_{self.reward_fn}"
+            from importlib import import_module
+            module = import_module(module_path)
+            _ = getattr(module, "RewardServer")
+        except Exception as e:
+            print(f'[@step start] Cannot find specified reward server {self.reward_fn}.')
+            raise e
+        print(f'[@step start] Using server defined in reward_{self.reward_fn}.py...')
         self.next(self.pull_model)
 
     @huggingface
@@ -232,6 +249,7 @@ class GutenbergErasGRPOPostTrain(FlowSpec):
                 print("Resuming from checkpoint recipe of task:", current.checkpoint.info.pathspec, recipe_checkpoint_path)            
         config["run_name"] = current.pathspec
         config["output_dir"] = os.path.join(current.tempdir, "output")
+        config["reward_fn"] = self.reward_fn
         # [default]: config["data_path"] = "gutenberg_dataset/train"
 
         ### DO TRAINING ROUND ###
@@ -254,7 +272,10 @@ class GutenbergErasGRPOPostTrain(FlowSpec):
         self.next(self.eval)
 
     @card(type='html')
-    @model(load="model_ref")
+    @model(
+        load=[("llama_model", "/metaflow_temp/model")], 
+        temp_dir_root="/metaflow_temp/loaded_models"
+    )
     @inference_environment
     @nebius_k8s(**nebius_k8s_config)
     @step
@@ -266,11 +287,12 @@ class GutenbergErasGRPOPostTrain(FlowSpec):
         with open('gutenberg_dataset/validation/passages.json', 'w') as f:
             json.dump(self.valid_data, f)   
 
-        ### RUN EVAL ON vLLM INFERENCE SERVER ###
+        ### RUN EVAL ON INFERENCE SERVER ###
         self.results = run_eval(
             checkpoint_path="/metaflow_temp/model",
             data_path='gutenberg_dataset/validation',
             output_dir='results',
+            reward_fn=self.reward_fn,
             # max_batches=10,
             seed=42
         )

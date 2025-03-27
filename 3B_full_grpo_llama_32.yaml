@@ -1,24 +1,16 @@
-# Config for multi-node GRPO in dev/grpo_full_finetune_distributed.py
+# Config for multi-node GRPO in ./grpo_full_finetune_distributed.py
 # using a Llama3.2 3B Base model
 #
 # This config assumes that you've run the following command before launching
 # this run:
 #   tune download meta-llama/Llama-3.2-3B --output-dir /tmp/Llama-3.2-3B --ignore-patterns "original/consolidated.00.pth"
 #
-# It can be beneficial to first train the base model with SFT using the 3B_sft recipe.
-#
-# To launch on 4 devices, run the following command from root:
-# tune run --nproc_per_node 4 dev/grpo_full_finetune_distributed --config dev/3B_full_grpo
-#
 # You can add specific overrides through the command line. For example
 # to override the checkpointer directory while launching training
 # you can run:
-#   tune run --nproc_per_node 4 dev/grpo_full_finetune_distributed --config dev/grpo/3B_full_rl checkpointer.checkpoint_dir=<YOUR_CHECKPOINT_DIR>
+#   tune run --nproc_per_node 4 grpo_full_finetune_distributed.py --config 3B_full_grpo_llama_32.yaml
 #
 # This config works best when the model is being fine-tuned on 2+ GPUs.
-#
-# Furthermore, you can launch it on multiple nodes by going to recipes/dev/ and using
-#  sbatch multinode_grpo.sbatch
 
 # name: llama3_2_3B_grpo_gutenberg
 name: llama3_2_3B_grpo_gutenberg_rewards_v1
@@ -108,7 +100,7 @@ device: cuda
 
 # Memory management
 enable_activation_checkpointing: True  # True reduces memory
-compile: True 
+compile: False 
 
 # Reduced precision
 dtype: bf16
