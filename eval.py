@@ -443,7 +443,7 @@ if __name__ == "__main__":
         batch_size=args.batch_size,
         grpo_size=args.grpo_size,
         max_tokens=args.max_tokens,
-        temperature=args.temperature,
+        temperature=args.temperature,``
         top_p=args.top_p,
         top_k=args.top_k,
         max_batches=args.max_batches,

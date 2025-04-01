@@ -273,7 +273,7 @@ class GutenbergErasGRPOPostTrain(FlowSpec):
 
     @card(type='html')
     @model(
-        load=[("llama_model", "/metaflow_temp/model")], 
+        load=[("llama_model", "/metaflow_temp/llama_model")], 
         temp_dir_root="/metaflow_temp/loaded_models"
     )
     @inference_environment
@@ -289,7 +289,7 @@ class GutenbergErasGRPOPostTrain(FlowSpec):
 
         ### RUN EVAL ON INFERENCE SERVER ###
         self.results = run_eval(
-            checkpoint_path="/metaflow_temp/model",
+            checkpoint_path="/metaflow_temp/llama_model",
             data_path='gutenberg_dataset/validation',
             output_dir='results',
             reward_fn=self.reward_fn,

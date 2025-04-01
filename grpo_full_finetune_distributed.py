@@ -22,8 +22,6 @@ from torchtune.config._utils import _get_component_from_path
 from torchtune.datasets import ConcatDataset
 # from torchtune.dev.grpo.generation import generate
 from recipe_utils.grpo_generation_tqdmless import generate
-# from torchtune.dev.grpo.rewards import batch_shaped_correctness_reward
-# from grpo_rewards_aaa import batch_shaped_correctness_reward
 from torchtune.dev.grpo.types import GRPOStats, GRPOTrajectory
 from torchtune.modules import local_kv_cache
 from torchtune.recipe_interfaces import FTRecipeInterface
